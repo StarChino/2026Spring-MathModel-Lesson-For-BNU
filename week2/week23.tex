@@ -1,0 +1,263 @@
+\documentclass[12pt]{ctexart}
+\usepackage{amsmath}
+\usepackage{indentfirst}
+\usepackage{a4}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+%\usepackage{algorithmic}
+\usepackage{caption}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{listings}
+\geometry{a4paper,left=2cm,right=2cm,top=2.5cm,bottom=2.5cm}
+\setlength{\parindent}{2em}
+
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\tiny,
+    backgroundcolor=\color{gray!5}, 
+    numbers=left, 
+    numberstyle=\tiny\color{gray}, 
+    frame=single,
+    breaklines=true,
+    tabsize=4,
+    keywordstyle=\color{blue}\bfseries,
+    stringstyle=\color{red},
+    commentstyle=\color{teal}\itshape,
+    showstringspaces=false
+}
+
+\begin{document}
+
+\title{基于元胞自动机的面包霉菌生长模拟与种群竞争建模分析}
+\author{已经隐藏}
+\date{}
+\maketitle
+\section*{摘要}
+为探究面包储存过程中多种霉菌的生长规律与种群竞争机制，本文构建了基于元胞自动机的微生物群落演化模型。在统一温湿度（25℃、相对湿度85\%）的基本假设下，将面包基质离散为二维网格，定义青霉、毛霉、根霉、黑曲霉四种霉菌的生长速率、竞争力、抑制能力等特性参数，设计包含扩散、竞争与营养衰减的元胞更新规则，实现了霉菌群落动态演化的数值模拟。通过设计四类自拟建模问题，分别从初始状态扰动、环境因子变化及菌种拓展等角度，分析了各菌种综合竞争力的差异及主导因素，并进一步实现了菌落边缘轮廓的提取。研究结果直观复现了霉菌放射状生长、种群竞争边界形成及营养耗尽导致的菌落演替过程，可为面包等食品的防霉储存策略提供理论参考与计算模型支撑。
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{基本假设}
+在混合培养青霉、毛霉、根霉、黑曲霉的条件下，各菌种最适生长温度和湿度存在一定差异。
+
+通过查阅微生物学的有关文献，我们了解到：对于青霉，其最适生长温度为25℃；毛霉和曲霉的最适生长温度为25至30℃； 根霉的最适生长温度为25到35摄氏度。故综合考虑四种霉菌的生长温度重叠区间，选定25℃为共同培养温度。
+
+在湿度方面，适宜青霉生长的相对湿度为85\%到90\%左右，毛霉的最适相对湿度为90\%左右，适宜曲霉生长的相对湿度为70\%到80\%，根霉的最适相对湿度为85\%左右。为保证四种霉菌均能正常生长，并合理体现出有竞争和共生关系存在的情况下的演替过程，综合选取85\%作为共同培养的相对湿度。
+
+\section{伪代码}
+输入：霉菌特性（包括生长速度、耐贫瘠能力、营养消耗速率）菌种之间的关系（菌丝竞争力，抑制能力）、面包初始营养值、初始位置
+
+输出：结果图、动图
+
+\begin{center}
+\captionof{algorithm}{霉菌扩散与竞争模拟}
+\label{alg:mold_sim}
+\small
+\begin{algorithmic}[1]
+
+\State \textbf{输入及全局常量定义}
+\State \quad 菌种集合 $\gets \{S_0,S_1,S_2,S_3\}$
+\State \quad 格式：[编号$species$, 颜色, 生长速度$speed$, 竞争力$comp$, 抑制数组$restrain$, 耐贫瘠$poverty$, 营养消耗$consume$]
+\State \quad $S_0=[species_0,\text{青绿色},speed_0,comp_0,restrain_0,poverty_0,consume_0]$
+\State \quad $S_1=[species_1,\text{深红色},speed_1,comp_1,restrain_1,poverty_1,consume_1]$
+\State \quad $S_2=[species_2,\text{紫粉色},speed_2,comp_2,restrain_2,poverty_2,consume_2]$
+\State \quad $S_3=[species_3,\text{金黄色},speed_3,comp_3,restrain_3,poverty_3,consume_3]$
+\State \quad 网格宽度$x_0=60$，网格高度$y_0=60$，初始营养$N_0=100$
+\State \quad 营养网格$N[x,y]\gets N_0$，菌种网格$G[x,y]\gets -1$
+\State \quad 放菌事件$\gets\{(0,10,10,0),(0,10,50,1),(0,50,50,2),(0,50,10,3)\}$
+\State \quad 格式：$[tick,x,y,species]$
+
+\State \textbf{过程} 初始化世界
+\State \quad 所有格子营养重置为$N_0$
+\State \quad 所有格子菌种重置为空$species=-1$
+
+\State \textbf{过程} 放置初始霉菌(当前时刻$tick$)
+\State \quad \textbf{对每一条} (时刻$tick$,行$x$,列$y$,菌种编号$species$) \textbf{做}
+\State \quad \quad \textbf{若} 当前时刻等于放置时刻且坐标合法
+\State \quad \quad \quad 将网格$(x,y)$设为对应菌种
+
+\State \textbf{过程} 扩散与竞争单步更新
+\State \quad 保存旧网格，初始化新网格
+\State \quad \textbf{遍历所有格子} $(x,y)$
+\State \quad \quad 统计邻域内各菌种数量
+\State \quad \quad \textbf{若无任何邻居则跳过}
+\State \quad \quad \textbf{计算每种菌种在本格的竞争势力$power$}
+
+\State \quad \quad \quad $nutrition\_factor = (\frac{nutrition}{N_0}) \times  poverty^{-1}$
+
+\State \quad \quad \quad $power = (comp\times \text{自身数量} - restrain\times \text{对方数量}) \times nutrition\_factor$
+
+\State \quad \quad 筛选势力大于0且存在邻居的有效菌种
+\State \quad \quad 选出势力最大的优势菌种
+\State \quad \quad \textbf{若本格为空}
+\State \quad \quad \quad 按生长概率随机尝试占领
+\State \quad \quad \textbf{否则若优势菌种不同于本格菌种}
+\State \quad \quad \quad 按生长概率随机尝试替换入侵
+\State \quad 更新菌种网格为新状态
+
+\State \textbf{过程} 全局营养消耗
+\State \quad \textbf{遍历所有格子}
+\State \quad \quad 若存在菌种，则扣除对应营养消耗，最低归零
+
+\State \textbf{主算法} 运行模拟(总步数)
+\State \quad 初始化世界
+\State \quad \textbf{循环} 每一步仿真时刻
+\State \quad \quad 放置初始霉菌
+\State \quad \quad 扩散与竞争单步更新
+\State \quad \quad 全局营养消耗
+\State \quad \quad 保存当前画面帧与耗尽格子
+\State \quad 生成并输出动态动画
+
+\end{algorithmic}
+\end{center}
+
+%\section{结果截图}
+\iffalse
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{2.png}
+\caption{结果截图}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{3.png}
+\caption{结果截图}
+\end{figure}
+\fi
+\section{自拟的数学建模问题}
+\begin{itemize}
+    \item 1、以提给图片中的霉菌位置为初始状态，模拟整块面包上霉菌群落演替的全过程
+    \item 2、以空白面包为初始状态，在随机位置生成霉菌孢子，模拟整块面包上霉菌群落演替的全过程
+    \item 3、在霉菌种类不变的前提下，改变温度和湿度，模拟可能出现的情况。
+    \item 4、温度和湿度不变的前提下，中途加入其他种类的霉菌，模拟可能出现的变化。
+\end{itemize}
+
+\section{自拟问题分析}
+\begin{itemize}
+    \item 1、求各菌种的综合竞争力，以及比较菌种综合竞争力的强弱，目标是确定某个坐标下一个时刻会被哪种霉菌占据。主要影响因素是菌种自身的特性以及菌种之间的影响。
+    \item 2、求各菌种综合竞争力，主要影响因素是菌种自身特性、菌种之间的影响以及初始位置。
+    \item 3、求各菌种综合竞争力，主要影响因素是温度和湿度。
+    \item 4、求各菌种综合竞争力，主要影响因素是新加入的菌种的自身特性以及和其他菌种之间的共生以及抑制关系。
+\end{itemize}
+
+\section{计算公式}%这里是核心内容
+\subsection{符号列表}
+\begin{table}[h]
+    \centering
+    \caption{符号列表}
+    \begin{tabular}{cccc}
+        \hline
+        符号&含义&符号&含义\\
+        \hline
+        $S_i$&表示菌种特性向量&$restrain$&抑制能力向量\\
+        $species_i$&菌种代码对应格子状态(对应$i$)&$poverty$&耐贫瘠能力参数\\
+        $speed$&生长速度参数(占领格子概率)&$consume$&营养消耗参数\\
+        $comp$&竞争力参数&&\\
+        \hline
+        $tick$&元胞自动机每一个状态&$nutrition_{xy}$&面包营养值\\
+        $[x,y]$&方格坐标&$power_i$&占领竞争力\\
+        $[x_0,y_0]$&面包长宽&$block_s$&自身周围格子数量\\
+        $N_0$&面包初始营养值&$block_i$&其它菌种周围格子数量\\
+        \hline
+    \end{tabular}
+\end{table}
+\subsection{生长计算方法}
+AI的扩散计算公式效果不具有随机性，我们重新自己编写了相关算法公式。
+$power_i$
+\[power_i=[comp_i\times block_s - restrain_i\cdot (block_0,block_1,block_2,block_3) ] \times nutrition\_factor
+\]
+
+\[nutrition\_factor = (\frac{nutrition}{N_0}) \times  poverty^{-1}
+\]
+
+若$\max(power_0,power_1,power_2,power_3)=power_i$
+则$species_i$有$speed$的概率生长至该格。
+
+\subsection{判断边缘}
+该判断算法为自行设计，但在设计Python程序时采用了AI的遍历方法
+\[edge(species,y,x)=
+\left \{
+\begin{array}{ll}
+    1& \text{if} \hspace{1em}grid(x,y)=species_i \hspace{1em}\text{and}\\
+    &\hspace{1em}grid[x+dx,y+dy]\neq species_i,
+    \exists (dx,dy)\in (-1,0,1)^2\setminus (0,0),\\ 
+    &i\in \{-1,0,1,2,3,4,5,6,7\}\\
+    0&else\\
+\end{array}
+\right .
+\]
+
+$i=\{4,5,6,7\}$代表$i=\{0,1,2,3\}$对应的死亡状态,也即为
+
+\[species_i=
+\left \{
+\begin{array}{ll}
+    -1&\text{格子为空}\\
+    0&nutrition>0 \text{且为菌种A}\\
+    1&nutrition>0 \text{且为菌种B}\\
+    2&nutrition>0 \text{且为菌种C}\\
+    3&nutrition>0 \text{且为菌种D}\\
+    4&nutrition\leqslant 0 \text{且为菌种A}\\
+    5&nutrition\leqslant 0 \text{且为菌种B}\\
+    6&nutrition\leqslant 0 \text{且为菌种C}\\
+    7&nutrition\leqslant 0 \text{且为菌种D}\\
+\end{array}
+\right .
+\]
+\iffalse
+\section{附录}
+\subsection{源代码}
+%\lstinputlisting{mmw2.py}
+\lstinputlisting{mmw3.py}
+\subsection{ai使用声明}
+\begin{small}
+    \include{ai}
+\end{small}
+\fi
+\section*{}
+\begin{thebibliography}{99}
+\bibitem{ref1}
+Reinoso,R.,\&de la Rubia,J.(2013).Spatical spread of the Hantavirus infection.PHysical Review E,87,042706.
+\bibitem{ref2}
+Rate of spread of Armillaria ostoyae in two Douglas-fir plantations in the southern interior of British Columbia. (1996). Canadian Journal of Forest Research.
+\bibitem{ref3}
+The Dyeing of Acetate Rayon with Disperse Dyes—Diffusion Coefficients in Cellulose Acetate Film. (1956). Journal of the Society of Dyers and Colourists.
+\bibitem{ref4}
+Velocity of Spread of Wheat Stripe Rust Epidemics. (2005). Phytopathology.
+\bibitem{ref5}
+Ingestion-Limited Growth of Aquatic Animals: The Case for Blackman Kinetics. (1982). Canadian Journal of Fisheries and Aquatic Sciences.
+\bibitem{ref6}
+The ecology of newt tadpoles. (1971). Freshwater Biology.
+\bibitem{ref7}
+Association of mating-type with mycelium growth rate and genetic variability of Fusarium culmorum. (2013). Open Life Sciences.
+\bibitem{ref8}
+A Note on the Estimation of Microbial Growth Rates from Rates of Substrate Utilization. (1981). Journal of Applied Bacteriology.
+\bibitem{ref9}
+H₂S: A Universal Defense Against Antibiotics in Bacteria. (2011). Science.
+\bibitem{ref10}
+Effects of Drying Conditions on Water Sorption and Phase Transitions of Freeze-Dried Horseradish Roots. (1990). Journal of Food Science.
+\bibitem{ref11}
+Effect of Temperature and Humidity on Nasal Flora of Mice. (1955). Experimental Biology and Medicine.
+\bibitem{ref12}
+The Effect Of Temperature and Of Relative Humidity On Sectioning Of Tissues Embedded In Polyethylene Glycol Wax. (1952). Stain Technology.
+\bibitem{ref13}
+Laboratory studies on the relationship between fungal growth and atmospheric temperature and humidity. (1991). Environment International.
+\bibitem{ref14}
+Effect of Temperature and Relative Humidity on the Growth of Helminthosporium fulvum. (2011). Nigerian Journal of Basic and Applied Sciences.
+\bibitem{ref15}
+Influence of Temperature on Growth and Sporulation of Certain Fungi. (1956). Botanical Gazette.
+\bibitem{ref16}
+The Effect of Temperature and Nutrients Upon Spore Germination of the Oak Wilt Fungus. (1954). Mycologia.
+\bibitem{ref17}
+Optimum growth temperature for Pilobolus. (1987). Canadian Journal of Botany.
+\bibitem{ref17}
+Air and root-zone temperature effects on the growth and yield of American ginseng. (1986). Journal of Horticultural Science.
+\end{thebibliography}
+
+\end{document}
